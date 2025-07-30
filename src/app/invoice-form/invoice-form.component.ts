@@ -11,10 +11,11 @@ import { HttpClient, HttpClientModule } from '@angular/common/http';
   styleUrls: ['./invoice-form.component.css'],
 })
 export class InvoiceFormComponent {
-  generatedQRCode: string = '';
+  generatedQRCode: string = ''; // pure base64 (no data: prefix)
+
   @Input() invoiceData: any;
   @Output() invoiceDataChange = new EventEmitter<any>();
-  @Output() qrGenerated = new EventEmitter<string>();
+  @Output() qrGenerated = new EventEmitter<string>(); // emit base64 to preview
 
   selectedImage: string = '';   // Base64 logo image
   clientEmail: string = '';     // User-entered email
@@ -28,16 +29,31 @@ export class InvoiceFormComponent {
     this.http.post<any>('http://localhost:8080/api/invoices/generate', this.invoiceData)
       .subscribe({
         next: (res) => {
-          console.log("✅ Response received:", res);
-          if (res && res.qrCode) {
-            this.generatedQRCode = res.qrCode;
-          } else {
-            console.warn("⚠️ QR code not found in response");
+          console.log('✅ Response received:', res);
+
+          // Normalize: accept pure base64 OR a full data URL; strip whitespace/newlines.
+          const raw = (res?.qrCode ?? '').replace(/\s/g, '');
+          if (!raw) {
+            console.warn('⚠️ QR code not found in response');
+            this.generatedQRCode = '';
+            this.qrGenerated.emit(''); // inform preview to hide QR
+            return;
           }
+
+          // If backend sent a full data URL, keep only the base64 part; else use raw.
+          const base64 = raw.startsWith('data:image/')
+            ? (raw.split(',')[1] || '')
+            : raw;
+
+          this.generatedQRCode = base64;
+
+          // 🔔 Emit to whoever hosts the preview so it can show on the right side.
+          this.qrGenerated.emit(base64);
         },
         error: (err) => {
-          console.error("❌ HTTP Error occurred:", err);
-          this.generatedQRCode = "Fallback QR: QR generation failed.";
+          console.error('❌ HTTP Error occurred:', err);
+          this.generatedQRCode = '';
+          this.qrGenerated.emit(''); // hide QR on error
         }
       });
   }
